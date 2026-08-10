@@ -109,10 +109,20 @@
     }
     .preview strong { display: block; margin-bottom: 6px; color: var(--ink); }
 
+    .question-list { display: grid; gap: 16px; }
+    .question-card { padding: 18px; border: 1px solid var(--line); border-radius: 10px; background: #fbfcfe; }
+    .question-card h3 { margin: 0 0 14px; font-size: 1.05rem; }
+    .question-card .field { margin-bottom: 12px; }
+    .question-card textarea { min-height: 86px; }
+    .option-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+    .print-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+    .save-note { margin: 0; color: var(--muted); font-size: .9rem; }
+
     @media (max-width: 620px) {
       .page { width: min(100% - 20px, 960px); padding-top: 24px; }
       .card { padding: 18px; }
       .two-col { grid-template-columns: 1fr; gap: 0; }
+      .option-grid { grid-template-columns: 1fr; }
       .actions button { width: 100%; }
     }
 
@@ -121,6 +131,12 @@
       .page { width: 100%; padding: 0; }
       .card { box-shadow: none; break-inside: avoid; }
       .actions { display: none; }
+      .print-actions, .save-note, #condition-title, #question-title + p { display: none; }
+      .question-card { border: 0; padding: 8px 0; }
+      .question-card.empty { display: none; }
+      .answer-only { display: none; }
+      body[data-print-mode="answers"] .answer-only { display: block; }
+      body[data-print-mode="answers"] .source-reminder { display: block; }
     }
   </style>
 </head>
@@ -133,48 +149,160 @@
 
     <main>
       <section class="card" aria-labelledby="input-title">
-        <h2 id="input-title">準備時事素材</h2>
-        <p class="hint">請先貼上一段新聞文字，再填寫出處資料。</p>
+        <h2 id="input-title">命題條件</h2>
+        <p class="hint">先填寫這次要出的題目條件，再編輯下面的題目。</p>
+
+        <div class="two-col">
+          <div class="field">
+            <label for="subject">科目</label>
+            <input id="subject" type="text" placeholder="例如：公民與社會">
+          </div>
+          <div class="field">
+            <label for="unit">課綱單元重點</label>
+            <textarea id="unit" placeholder="可填多個單元重點，一行一個"></textarea>
+          </div>
+        </div>
 
         <div class="field">
-          <label for="news">新聞文字</label>
-          <textarea id="news" placeholder="請把新聞文字貼在這裡"></textarea>
+          <label for="news-title">新聞標題</label>
+          <input id="news-title" type="text" placeholder="請填寫新聞標題">
         </div>
 
         <div class="two-col">
           <div class="field">
-            <label for="source">媒體名稱</label>
+            <label for="source">新聞來源</label>
             <input id="source" type="text" placeholder="例如：中央社">
           </div>
           <div class="field">
-            <label for="date">發布日期</label>
+            <label for="date">新聞日期</label>
             <input id="date" type="date">
           </div>
         </div>
 
+        <div class="field">
+          <label for="news">新聞重點貼上區</label>
+          <textarea id="news" placeholder="請把新聞重點貼在這裡"></textarea>
+        </div>
+
         <fieldset>
-          <legend>題目難易度</legend>
+          <legend>題型</legend>
           <div class="choices">
-            <label class="choice"><input type="radio" name="level" value="basic" checked>基礎</label>
-            <label class="choice"><input type="radio" name="level" value="standard">一般</label>
-            <label class="choice"><input type="radio" name="level" value="advanced">挑戰</label>
+            <label class="choice"><input type="radio" name="question-type" value="single" checked>單選</label>
+            <label class="choice"><input type="radio" name="question-type" value="group">題組</label>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>題數</legend>
+          <div class="choices">
+            <label class="choice"><input type="radio" name="question-count" value="3">3 題</label>
+            <label class="choice"><input type="radio" name="question-count" value="5" checked>5 題</label>
           </div>
         </fieldset>
 
         <div class="actions">
-          <button type="button">產生 5 題草稿</button>
-          <button type="button" class="secondary">清除畫面</button>
+          <button type="button" id="focus-questions">前往編輯題目</button>
+          <button type="button" class="secondary" id="clear-form">清除畫面</button>
         </div>
+        <p class="save-note" id="save-note" role="status">內容會自動保存在這台電腦的瀏覽器裡。</p>
       </section>
 
       <section class="card" aria-labelledby="preview-title">
-        <h2 id="preview-title">題目草稿預覽</h2>
-        <div class="preview">
-          <strong>目前還沒有題目</strong>
-          M0 先完成畫面骨架；之後的里程碑會加入產生題目、保存與登入功能。
+        <h2 id="preview-title">題目編輯區</h2>
+        <p class="hint">請直接在題格裡編輯題幹、選項、答案、詳解和出處提醒。空白題格列印時會自動略過。</p>
+        <div class="question-list" id="question-list"></div>
+        <div class="print-actions">
+          <button type="button" id="print-paper">列印試題卷</button>
+          <button type="button" class="secondary" id="print-answers">列印答案詳解卷</button>
         </div>
       </section>
     </main>
   </div>
+  <script>
+    (() => {
+      const storageKey = "時事命題小幫手-m1";
+      const list = document.querySelector("#question-list");
+      const saveNote = document.querySelector("#save-note");
+      const questionFields = ["stem", "a", "b", "c", "d", "answer", "explanation", "source-reminder"];
+
+      function makeQuestion(number) {
+        const card = document.createElement("article");
+        card.className = "question-card";
+        card.dataset.number = number;
+        card.innerHTML = `
+          <h3>第 ${number} 題</h3>
+          <div class="field"><label for="q${number}-stem">題幹</label><textarea id="q${number}-stem" data-field="stem" placeholder="請輸入題目內容"></textarea></div>
+          <div class="option-grid">
+            <div class="field"><label for="q${number}-a">A 選項</label><input id="q${number}-a" data-field="a" type="text"></div>
+            <div class="field"><label for="q${number}-b">B 選項</label><input id="q${number}-b" data-field="b" type="text"></div>
+            <div class="field"><label for="q${number}-c">C 選項</label><input id="q${number}-c" data-field="c" type="text"></div>
+            <div class="field"><label for="q${number}-d">D 選項</label><input id="q${number}-d" data-field="d" type="text"></div>
+          </div>
+          <div class="two-col answer-only">
+            <div class="field"><label for="q${number}-answer">答案</label><select id="q${number}-answer" data-field="answer"><option value="">尚未填寫</option><option>A</option><option>B</option><option>C</option><option>D</option></select></div>
+            <div class="field"><label for="q${number}-explanation">詳解</label><textarea id="q${number}-explanation" data-field="explanation" placeholder="請填寫答案詳解"></textarea></div>
+          </div>
+          <div class="field answer-only source-reminder"><label for="q${number}-source-reminder">出處提醒</label><input id="q${number}-source-reminder" data-field="source-reminder" type="text" placeholder="例如：中央社，2026-08-10"></div>`;
+        list.append(card);
+      }
+
+      for (let number = 1; number <= 8; number += 1) makeQuestion(number);
+
+      function allFields() { return [...document.querySelectorAll("input, textarea, select")]; }
+      function readData() {
+        const fields = {};
+        allFields().forEach((field) => {
+          if (field.type === "radio") {
+            if (field.checked) fields[field.name] = field.value;
+          } else if (field.dataset.field) {
+            const card = field.closest(".question-card");
+            fields[`q${card.dataset.number}-${field.dataset.field}`] = field.value;
+          } else {
+            fields[field.id] = field.value;
+          }
+        });
+        return fields;
+      }
+      function save() {
+        localStorage.setItem(storageKey, JSON.stringify(readData()));
+        saveNote.textContent = "已自動保存剛才的內容。";
+      }
+      function restore() {
+        const saved = JSON.parse(localStorage.getItem(storageKey) || "{}");
+        allFields().forEach((field) => {
+          const key = field.dataset.field ? `q${field.closest(".question-card").dataset.number}-${field.dataset.field}` : field.id || field.name;
+          if (field.type === "radio") {
+            if (Object.prototype.hasOwnProperty.call(saved, field.name)) field.checked = saved[field.name] === field.value;
+          }
+          else if (Object.prototype.hasOwnProperty.call(saved, key)) field.value = saved[key];
+        });
+      }
+      function updateEmptyCards() {
+        document.querySelectorAll(".question-card").forEach((card) => {
+          const hasContent = [...card.querySelectorAll("textarea, input")].some((field) => field.value.trim());
+          card.classList.toggle("empty", !hasContent);
+        });
+      }
+
+      restore();
+      updateEmptyCards();
+      allFields().forEach((field) => field.addEventListener("input", () => { save(); updateEmptyCards(); }));
+      allFields().forEach((field) => field.addEventListener("change", save));
+      document.querySelector("#focus-questions").addEventListener("click", () => document.querySelector("#question-list").scrollIntoView({ behavior: "smooth" }));
+      document.querySelector("#clear-form").addEventListener("click", () => {
+        if (!window.confirm("確定要清除這台電腦上保存的內容嗎？")) return;
+        allFields().forEach((field) => { if (field.type === "radio") field.checked = field.value === (field.name === "question-count" ? "5" : "single"); else field.value = ""; });
+        localStorage.removeItem(storageKey); updateEmptyCards(); saveNote.textContent = "已清除畫面和本機保存內容。";
+      });
+      function print(mode) {
+        updateEmptyCards();
+        document.body.dataset.printMode = mode;
+        window.print();
+      }
+      document.querySelector("#print-paper").addEventListener("click", () => print("paper"));
+      document.querySelector("#print-answers").addEventListener("click", () => print("answers"));
+      window.addEventListener("afterprint", () => { delete document.body.dataset.printMode; });
+    })();
+  </script>
 </body>
 </html>
