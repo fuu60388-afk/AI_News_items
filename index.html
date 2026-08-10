@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>時事命題小幫手</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #1f2937;
+      --muted: #5b6472;
+      --line: #d9dee7;
+      --paper: #ffffff;
+      --page: #f3f6fa;
+      --brand: #155e75;
+      --brand-dark: #0e4658;
+      --soft: #e8f4f7;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--page);
+      font-family: "Microsoft JhengHei", "Noto Sans TC", sans-serif;
+      line-height: 1.6;
+    }
+
+    .page {
+      width: min(100% - 32px, 960px);
+      margin: 0 auto;
+      padding: 36px 0 56px;
+    }
+
+    header {
+      margin-bottom: 24px;
+    }
+
+    h1, h2, p { margin-top: 0; }
+    h1 { margin-bottom: 8px; font-size: clamp(1.75rem, 4vw, 2.4rem); }
+    h2 { margin-bottom: 6px; font-size: 1.25rem; }
+    .intro { color: var(--muted); margin-bottom: 0; }
+
+    main {
+      display: grid;
+      gap: 20px;
+    }
+
+    .card {
+      padding: 24px;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      box-shadow: 0 8px 24px rgb(15 23 42 / 6%);
+    }
+
+    .field { margin-bottom: 18px; }
+    .field:last-child { margin-bottom: 0; }
+    label, legend { display: block; margin-bottom: 7px; font-weight: 700; }
+    .hint { margin: 0 0 9px; color: var(--muted); font-size: .94rem; }
+
+    textarea, input, select {
+      width: 100%;
+      padding: 11px 12px;
+      color: var(--ink);
+      background: #fff;
+      border: 1px solid #aeb8c7;
+      border-radius: 8px;
+      font: inherit;
+    }
+
+    textarea { min-height: 190px; resize: vertical; }
+    input:focus, textarea:focus, select:focus { outline: 3px solid #bde4ed; border-color: var(--brand); }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    fieldset { margin: 0 0 20px; padding: 0; border: 0; }
+    .choices { display: flex; flex-wrap: wrap; gap: 10px 18px; }
+    .choice { display: inline-flex; align-items: center; gap: 7px; font-weight: 400; }
+    .choice input { width: auto; }
+
+    .actions { display: flex; flex-wrap: wrap; gap: 12px; }
+    button {
+      padding: 11px 18px;
+      border: 0;
+      border-radius: 8px;
+      color: #fff;
+      background: var(--brand);
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    button:hover { background: var(--brand-dark); }
+    button.secondary { color: var(--brand-dark); background: var(--soft); }
+    button.secondary:hover { background: #d4ebf0; }
+
+    .preview {
+      min-height: 160px;
+      padding: 18px;
+      border: 2px dashed #b9c6d4;
+      border-radius: 10px;
+      color: var(--muted);
+      background: #fbfcfe;
+    }
+    .preview strong { display: block; margin-bottom: 6px; color: var(--ink); }
+
+    @media (max-width: 620px) {
+      .page { width: min(100% - 20px, 960px); padding-top: 24px; }
+      .card { padding: 18px; }
+      .two-col { grid-template-columns: 1fr; gap: 0; }
+      .actions button { width: 100%; }
+    }
+
+    @media print {
+      body { background: #fff; }
+      .page { width: 100%; padding: 0; }
+      .card { box-shadow: none; break-inside: avoid; }
+      .actions { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header>
+      <h1>時事命題小幫手</h1>
+      <p class="intro">把新聞素材整理成適合課堂使用的題目草稿。</p>
+    </header>
+
+    <main>
+      <section class="card" aria-labelledby="input-title">
+        <h2 id="input-title">準備時事素材</h2>
+        <p class="hint">請先貼上一段新聞文字，再填寫出處資料。</p>
+
+        <div class="field">
+          <label for="news">新聞文字</label>
+          <textarea id="news" placeholder="請把新聞文字貼在這裡"></textarea>
+        </div>
+
+        <div class="two-col">
+          <div class="field">
+            <label for="source">媒體名稱</label>
+            <input id="source" type="text" placeholder="例如：中央社">
+          </div>
+          <div class="field">
+            <label for="date">發布日期</label>
+            <input id="date" type="date">
+          </div>
+        </div>
+
+        <fieldset>
+          <legend>題目難易度</legend>
+          <div class="choices">
+            <label class="choice"><input type="radio" name="level" value="basic" checked>基礎</label>
+            <label class="choice"><input type="radio" name="level" value="standard">一般</label>
+            <label class="choice"><input type="radio" name="level" value="advanced">挑戰</label>
+          </div>
+        </fieldset>
+
+        <div class="actions">
+          <button type="button">產生 5 題草稿</button>
+          <button type="button" class="secondary">清除畫面</button>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="preview-title">
+        <h2 id="preview-title">題目草稿預覽</h2>
+        <div class="preview">
+          <strong>目前還沒有題目</strong>
+          M0 先完成畫面骨架；之後的里程碑會加入產生題目、保存與登入功能。
+        </div>
+      </section>
+    </main>
+  </div>
+</body>
+</html>
