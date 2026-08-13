@@ -117,6 +117,17 @@
     .option-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
     .print-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
     .save-note { margin: 0; color: var(--muted); font-size: .9rem; }
+    .auth-bar { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 14px 16px; background: var(--soft); border: 1px solid #c4e2e8; border-radius: 10px; }
+    .auth-info { margin: 0; color: var(--brand-dark); font-weight: 700; }
+    .auth-status { margin: 3px 0 0; color: var(--muted); font-size: .9rem; font-weight: 400; }
+    .auth-bar button { white-space: nowrap; }
+    .cloud-panel[hidden] { display: none; }
+    .cloud-list { display: grid; gap: 12px; margin-top: 14px; }
+    .cloud-item { border: 1px solid var(--line); border-radius: 10px; padding: 14px; background: #fff; }
+    .cloud-item h3 { margin: 0 0 6px; font-size: 1rem; }
+    .cloud-meta { margin: 0; color: var(--muted); font-size: .9rem; }
+    .cloud-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .cloud-empty { margin: 12px 0 0; color: var(--muted); }
 
     @media (max-width: 620px) {
       .page { width: min(100% - 20px, 960px); padding-top: 24px; }
@@ -124,6 +135,8 @@
       .two-col { grid-template-columns: 1fr; gap: 0; }
       .option-grid { grid-template-columns: 1fr; }
       .actions button { width: 100%; }
+      .auth-bar { align-items: stretch; flex-direction: column; }
+      .auth-bar button { width: 100%; }
     }
 
     @media print {
@@ -145,12 +158,24 @@
     <header>
       <h1>時事命題小幫手</h1>
       <p class="intro">把新聞素材整理成適合課堂使用的題目草稿。</p>
+      <section class="auth-bar" aria-label="會員登入" style="margin-top: 18px;">
+        <div>
+          <p class="auth-info" id="auth-info">目前以本機方式使用</p>
+          <p class="auth-status" id="auth-status">登入後可辨識您的身分；本機保存功能仍可照常使用。</p>
+        </div>
+        <button type="button" id="google-login">使用 Google 登入</button>
+        <button type="button" id="google-logout" class="secondary" hidden>登出</button>
+      </section>
     </header>
 
     <main>
       <section class="card" aria-labelledby="input-title">
         <h2 id="input-title">命題條件</h2>
         <p class="hint">先填寫這次要出的題目條件，再編輯下面的題目。</p>
+        <div class="field" style="background: var(--soft); padding: 12px; border-radius: 8px;">
+          <label for="api-note">安全設定</label>
+          <p class="hint" id="api-note">金鑰只由本機安全設定提供，不會輸入或保存到這個網頁。</p>
+        </div>
 
         <div class="two-col">
           <div class="field">
@@ -201,10 +226,22 @@
         </fieldset>
 
         <div class="actions">
+          <button type="button" id="generate-draft">產生考題草稿</button>
           <button type="button" id="focus-questions">前往編輯題目</button>
           <button type="button" class="secondary" id="clear-form">清除畫面</button>
         </div>
         <p class="save-note" id="save-note" role="status">內容會自動保存在這台電腦的瀏覽器裡。</p>
+        <p class="save-note" id="api-status" role="status" aria-live="polite"></p>
+      </section>
+
+      <section class="card cloud-panel" id="cloud-panel" hidden aria-labelledby="cloud-title">
+        <h2 id="cloud-title">我的命題紀錄</h2>
+        <p class="hint">登入後可以把這份考卷存到雲端，換一台電腦也能看到自己的紀錄。</p>
+        <div class="actions" style="margin-top: 14px;">
+          <button type="button" id="cloud-save">儲存這份考卷</button>
+          <p class="save-note" id="cloud-status" role="status" aria-live="polite">登入後就能看見自己的雲端紀錄。</p>
+        </div>
+        <div class="cloud-list" id="cloud-list"></div>
       </section>
 
       <section class="card" aria-labelledby="preview-title">
@@ -223,7 +260,6 @@
       const storageKey = "時事命題小幫手-m1";
       const list = document.querySelector("#question-list");
       const saveNote = document.querySelector("#save-note");
-      const questionFields = ["stem", "a", "b", "c", "d", "answer", "explanation", "source-reminder"];
 
       function makeQuestion(number) {
         const card = document.createElement("article");
@@ -284,11 +320,78 @@
         });
       }
 
+      function selected(name, fallback) {
+        return document.querySelector(`input[name="${name}"]:checked`)?.value || fallback;
+      }
+
+      function conditionData() {
+        return {
+          subject: document.querySelector("#subject").value,
+          unit: document.querySelector("#unit").value,
+          title: document.querySelector("#news-title").value,
+          source: document.querySelector("#source").value,
+          date: document.querySelector("#date").value,
+          news: document.querySelector("#news").value,
+          type: selected("question-type", "single"),
+          count: selected("question-count", "5")
+        };
+      }
+
+      function fillEmptyQuestions(questions) {
+        let filled = 0;
+        document.querySelectorAll(".question-card").forEach((card, index) => {
+          const stem = card.querySelector('[data-field="stem"]');
+          const hasContent = [...card.querySelectorAll("textarea, input")].some((field) => field.value.trim());
+          const question = questions[filled];
+          if (hasContent || !question) return;
+          const options = question.options || {};
+          const values = {
+            stem: question.stem || "",
+            a: options.A || "",
+            b: options.B || "",
+            c: options.C || "",
+            d: options.D || "",
+            answer: question.answer || "",
+            explanation: question.explanation || "",
+            "source-reminder": question.sourceReminder || ""
+          };
+          Object.entries(values).forEach(([field, value]) => {
+            const target = card.querySelector(`[data-field="${field}"]`);
+            if (target) target.value = value;
+          });
+          filled += 1;
+        });
+        return filled;
+      }
+
       restore();
       updateEmptyCards();
       allFields().forEach((field) => field.addEventListener("input", () => { save(); updateEmptyCards(); }));
       allFields().forEach((field) => field.addEventListener("change", save));
       document.querySelector("#focus-questions").addEventListener("click", () => document.querySelector("#question-list").scrollIntoView({ behavior: "smooth" }));
+      document.querySelector("#generate-draft").addEventListener("click", async () => {
+        const status = document.querySelector("#api-status");
+        const payload = conditionData();
+        if (!payload.news.trim()) { status.textContent = "請先貼上新聞重點，再產生考題。"; return; }
+        if (window.location.protocol === "file:") {
+          status.textContent = "目前是直接雙擊檔案開啟，請先啟動本機測試網址，再從 http://127.0.0.1:3000 開啟。";
+          return;
+        }
+        status.textContent = "正在產生考題草稿，請稍候……";
+        try {
+          const response = await fetch("/api/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || "產生失敗");
+          const filled = fillEmptyQuestions(data.questions || []);
+          updateEmptyCards(); save();
+          status.textContent = filled ? `已填入 ${filled} 題空白題格；原本有內容的題格未被覆蓋。` : "沒有空白題格可填入，原有內容未被覆蓋。";
+        } catch (error) {
+          const message = error.message === "Failed to fetch"
+            ? "找不到本機出題服務，請確認 Vercel 本機測試伺服器已啟動，再重新整理這個頁面。"
+            : (error.message || "請稍後再試。");
+          status.textContent = `產生失敗：${message}`;
+        }
+      });
       document.querySelector("#clear-form").addEventListener("click", () => {
         if (!window.confirm("確定要清除這台電腦上保存的內容嗎？")) return;
         allFields().forEach((field) => { if (field.type === "radio") field.checked = field.value === (field.name === "question-count" ? "5" : "single"); else field.value = ""; });
@@ -302,6 +405,351 @@
       document.querySelector("#print-paper").addEventListener("click", () => print("paper"));
       document.querySelector("#print-answers").addEventListener("click", () => print("answers"));
       window.addEventListener("afterprint", () => { delete document.body.dataset.printMode; });
+    })();
+  </script>
+  <script src="firebase-config.js"></script>
+  <script src="vendor/app-sdk.js"></script>
+  <script src="vendor/auth-sdk.js"></script>
+  <script src="vendor/firestore-sdk.js"></script>
+  <script>
+    (() => {
+      const authInfo = document.querySelector("#auth-info");
+      const authStatus = document.querySelector("#auth-status");
+      const loginButton = document.querySelector("#google-login");
+      const logoutButton = document.querySelector("#google-logout");
+      const cloudPanel = document.querySelector("#cloud-panel");
+      const cloudList = document.querySelector("#cloud-list");
+      const cloudStatus = document.querySelector("#cloud-status");
+      const cloudSaveButton = document.querySelector("#cloud-save");
+      const config = window.firebaseConfig || {};
+      const configReady = ["apiKey", "authDomain", "projectId", "appId"].every((key) => config[key]);
+
+      let auth = null;
+      let db = null;
+      let activeUid = null;
+      let activeCloudId = null;
+      let unsubscribeCloud = null;
+      let cloudRecords = [];
+
+      function setCloudVisible(visible) {
+        cloudPanel.hidden = !visible;
+      }
+
+      function stopCloudListener() {
+        if (unsubscribeCloud) {
+          unsubscribeCloud();
+          unsubscribeCloud = null;
+        }
+        cloudRecords = [];
+        if (cloudList) cloudList.innerHTML = "";
+      }
+
+      function getFieldValue(selector) {
+        return document.querySelector(selector)?.value || "";
+      }
+
+      function setFieldValue(selector, value) {
+        const element = document.querySelector(selector);
+        if (element) {
+          element.value = value || "";
+          element.dispatchEvent(new Event("input", { bubbles: true }));
+        }
+      }
+
+      function setRadioValue(name, value) {
+        const choice = document.querySelector(`input[name="${name}"][value="${value}"]`);
+        if (choice) {
+          choice.checked = true;
+          choice.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+      }
+
+      function readQuestions() {
+        return [...document.querySelectorAll(".question-card")].map((card) => ({
+          stem: card.querySelector('[data-field="stem"]')?.value || "",
+          options: {
+            A: card.querySelector('[data-field="a"]')?.value || "",
+            B: card.querySelector('[data-field="b"]')?.value || "",
+            C: card.querySelector('[data-field="c"]')?.value || "",
+            D: card.querySelector('[data-field="d"]')?.value || ""
+          },
+          answer: card.querySelector('[data-field="answer"]')?.value || "",
+          explanation: card.querySelector('[data-field="explanation"]')?.value || "",
+          sourceReminder: card.querySelector('[data-field="source-reminder"]')?.value || ""
+        }));
+      }
+
+      function applyQuestions(questions) {
+        [...document.querySelectorAll(".question-card")].forEach((card, index) => {
+          const question = questions[index];
+          if (!question) return;
+          const fields = {
+            stem: question.stem || "",
+            a: question.options?.A || "",
+            b: question.options?.B || "",
+            c: question.options?.C || "",
+            d: question.options?.D || "",
+            answer: question.answer || "",
+            explanation: question.explanation || "",
+            "source-reminder": question.sourceReminder || ""
+          };
+          Object.entries(fields).forEach(([field, value]) => {
+            const target = card.querySelector(`[data-field="${field}"]`);
+            if (target) {
+              target.value = value;
+              target.dispatchEvent(new Event("input", { bubbles: true }));
+            }
+          });
+        });
+      }
+
+      function buildCloudRecord() {
+        const questionType = document.querySelector('input[name="question-type"]:checked')?.value || "single";
+        const questionCount = document.querySelector('input[name="question-count"]:checked')?.value || "5";
+        return {
+          title: getFieldValue("#news-title").trim() || getFieldValue("#subject").trim() || "未命名考卷",
+          conditions: {
+            subject: getFieldValue("#subject"),
+            questionType,
+            questionCount
+          },
+          syllabus: getFieldValue("#unit"),
+          newsMaterial: {
+            title: getFieldValue("#news-title"),
+            source: getFieldValue("#source"),
+            date: getFieldValue("#date"),
+            content: getFieldValue("#news")
+          },
+          questions: readQuestions()
+        };
+      }
+
+      function applyCloudRecord(record) {
+        setFieldValue("#subject", record.conditions?.subject || "");
+        setFieldValue("#unit", record.syllabus || "");
+        setFieldValue("#news-title", record.newsMaterial?.title || record.title || "");
+        setFieldValue("#source", record.newsMaterial?.source || "");
+        setFieldValue("#date", record.newsMaterial?.date || "");
+        setFieldValue("#news", record.newsMaterial?.content || "");
+        setRadioValue("question-type", record.conditions?.questionType || "single");
+        setRadioValue("question-count", record.conditions?.questionCount || "5");
+        applyQuestions(record.questions || []);
+      }
+
+      function toDateText(value) {
+        if (!value) return "時間待更新";
+        if (value instanceof Date) return value.toLocaleString("zh-TW");
+        if (typeof value.toDate === "function") return value.toDate().toLocaleString("zh-TW");
+        if (value.seconds) return new Date(value.seconds * 1000).toLocaleString("zh-TW");
+        return String(value);
+      }
+
+      function renderCloudRecords() {
+        if (!cloudList) return;
+        if (!cloudRecords.length) {
+          cloudList.innerHTML = '<p class="cloud-empty">目前還沒有雲端命題紀錄。</p>';
+          return;
+        }
+
+        cloudList.innerHTML = "";
+        cloudRecords.forEach((record) => {
+          const item = document.createElement("article");
+          item.className = "cloud-item";
+          item.innerHTML = `
+            <h3>${record.title || "未命名考卷"}${record.id === activeCloudId ? "（目前這份）" : ""}</h3>
+            <p class="cloud-meta">最近更新：${toDateText(record.updatedAt)}</p>
+            <p class="cloud-meta">科目：${record.conditions?.subject || "未填"}　題數：${record.conditions?.questionCount || "5"} 題</p>
+            <div class="cloud-actions">
+              <button type="button" data-action="load">載入</button>
+              <button type="button" class="secondary" data-action="duplicate">另存</button>
+              <button type="button" class="secondary" data-action="delete">刪除</button>
+            </div>
+          `;
+          item.querySelector('[data-action="load"]').addEventListener("click", () => {
+            activeCloudId = record.id;
+            applyCloudRecord(record);
+            cloudStatus.textContent = `已載入：${record.title || "未命名考卷"}。`;
+          });
+          item.querySelector('[data-action="duplicate"]').addEventListener("click", () => saveCloudRecord(record, true));
+          item.querySelector('[data-action="delete"]').addEventListener("click", () => deleteCloudRecord(record.id, record.title));
+          cloudList.append(item);
+        });
+      }
+
+      async function saveCloudRecord(baseRecord = null, saveAsCopy = false) {
+        if (!auth || !db || !activeUid) {
+          cloudStatus.textContent = "請先登入，才能把考卷存到雲端。";
+          return;
+        }
+
+        const collection = db.collection("users").doc(activeUid).collection("examSets");
+        const payload = baseRecord || buildCloudRecord();
+        const serverTimestamp = window.firebase.firestore.FieldValue.serverTimestamp();
+        const docData = {
+          title: payload.title || "未命名考卷",
+          conditions: payload.conditions,
+          syllabus: payload.syllabus,
+          newsMaterial: payload.newsMaterial,
+          questions: payload.questions,
+          updatedAt: serverTimestamp
+        };
+
+        try {
+          if (!saveAsCopy && activeCloudId) {
+            const existing = cloudRecords.find((item) => item.id === activeCloudId);
+            docData.createdAt = existing?.createdAt || serverTimestamp;
+            await collection.doc(activeCloudId).set(docData, { merge: true });
+            cloudStatus.textContent = "已更新這份雲端考卷。";
+          } else {
+            docData.createdAt = serverTimestamp;
+            const saved = await collection.add(docData);
+            activeCloudId = saved.id;
+            cloudStatus.textContent = "已另存成新的雲端考卷。";
+          }
+        } catch (error) {
+          cloudStatus.textContent = "雲端保存失敗，請稍後再試。";
+        }
+      }
+
+      async function deleteCloudRecord(id, title) {
+        if (!auth || !db || !activeUid) {
+          cloudStatus.textContent = "請先登入，才能刪除雲端考卷。";
+          return;
+        }
+        if (!window.confirm(`確定要刪除「${title || "未命名考卷"}」嗎？`)) return;
+        try {
+          await db.collection("users").doc(activeUid).collection("examSets").doc(id).delete();
+          if (activeCloudId === id) activeCloudId = null;
+          cloudStatus.textContent = "已刪除這份雲端考卷。";
+        } catch (error) {
+          cloudStatus.textContent = "刪除失敗，請稍後再試。";
+        }
+      }
+
+      function startCloudListener(uid) {
+        stopCloudListener();
+        activeUid = uid || null;
+        activeCloudId = null;
+
+        if (!activeUid || !db) {
+          setCloudVisible(false);
+          return;
+        }
+
+        setCloudVisible(true);
+        cloudStatus.textContent = "正在載入你的雲端命題紀錄……";
+        unsubscribeCloud = db.collection("users").doc(activeUid).collection("examSets")
+          .orderBy("updatedAt", "desc")
+          .onSnapshot((snapshot) => {
+            cloudRecords = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+            renderCloudRecords();
+            cloudStatus.textContent = cloudRecords.length ? "已載入你的雲端命題紀錄。" : "目前還沒有雲端命題紀錄。";
+          }, () => {
+            cloudStatus.textContent = "雲端命題紀錄載入失敗，請稍後再試。";
+          });
+      }
+
+      function initFirebase() {
+        if (!window.firebase || !window.firebase.auth || !window.firebase.firestore) {
+          authStatus.textContent = "Firebase 登入或雲端程式沒有成功載入，請稍後再試。";
+          loginButton.disabled = true;
+          cloudPanel.hidden = true;
+          return;
+        }
+
+        if (!configReady) {
+          authStatus.textContent = "尚未填入 Firebase 設定；目前仍可使用本機功能。";
+          loginButton.disabled = true;
+          cloudPanel.hidden = true;
+          return;
+        }
+
+        try {
+          if (!window.firebase.apps.length) {
+            window.firebase.initializeApp(config);
+          }
+
+          auth = window.firebase.auth();
+          db = window.firebase.firestore();
+          const provider = new window.firebase.auth.GoogleAuthProvider();
+
+          auth.onAuthStateChanged((user) => {
+            if (user) {
+              authInfo.textContent = `已登入：${user.displayName || user.email || "Google 使用者"}`;
+              authStatus.textContent = "登入成功，現在可以使用雲端命題紀錄。";
+              loginButton.hidden = true;
+              logoutButton.hidden = false;
+              startCloudListener(user.uid);
+            } else {
+              authInfo.textContent = "目前以本機方式使用";
+              authStatus.textContent = "登入後可辨識您的身分；本機保存功能仍可照常使用。";
+              loginButton.hidden = false;
+              logoutButton.hidden = true;
+              activeUid = null;
+              stopCloudListener();
+              setCloudVisible(false);
+            }
+          });
+
+          loginButton.addEventListener("click", async () => {
+            if (window.location.protocol === "file:") {
+              authStatus.textContent = "目前是直接雙擊檔案開啟 (file://)，Firebase 登入需要透過網址。請改用 http://localhost:3000 開啟後再試一次。";
+              return;
+            }
+            if (window.location.hostname === "127.0.0.1") {
+              const portPart = window.location.port ? `:${window.location.port}` : "";
+              authStatus.textContent = `Firebase 免費版不支援 IP 網域 (127.0.0.1) 登入。請將網址開頭的 127.0.0.1 改為 localhost（即 http://localhost${portPart}）後重新整理再試一次。`;
+              return;
+            }
+
+            authStatus.textContent = "正在開啟 Google 登入視窗……";
+            try {
+              await auth.signInWithPopup(provider);
+            } catch (error) {
+              const code = error && error.code ? error.code : "unknown-error";
+              const message = error && error.message ? error.message : String(error);
+              if (code === "auth/popup-closed-by-user") {
+                authStatus.textContent = "已取消 Google 登入（視窗已被關閉）。";
+                return;
+              }
+              if (code === "auth/unauthorized-domain") {
+                const currentHost = window.location.hostname || "localhost";
+                const portPart = window.location.port ? `:${window.location.port}` : "";
+                authStatus.textContent = `Google 登入失敗：目前網址 (${currentHost}) 尚未加入 Firebase 後台授權名單。請改用 http://localhost${portPart} 開啟測試。`;
+                return;
+              }
+              if (code === "auth/popup-blocked" || code === "auth/operation-not-supported-in-this-environment") {
+                authStatus.textContent = "這個瀏覽器擋住了登入彈窗，正在改用轉頁登入……";
+                try {
+                  await auth.signInWithRedirect(provider);
+                } catch (redirectError) {
+                  const rCode = redirectError && redirectError.code ? redirectError.code : "unknown";
+                  authStatus.textContent = `Google 登入失敗 (${rCode})，請改用 http://localhost:${window.location.port || "3000"} 開啟瀏覽器再試一次。`;
+                }
+                return;
+              }
+              authStatus.textContent = `Google 登入失敗 (${code})，請確認 Firebase 已啟用 Google 登入，並請改用 http://localhost 網址測試。`;
+            }
+          });
+
+          logoutButton.addEventListener("click", async () => {
+            try {
+              await auth.signOut();
+            } catch (error) {
+              authStatus.textContent = "登出失敗，請稍後再試。";
+            }
+          });
+
+          cloudSaveButton.addEventListener("click", () => saveCloudRecord(null, false));
+          cloudPanel.hidden = true;
+        } catch (error) {
+          authStatus.textContent = "Firebase 初始化失敗，請稍後再試。";
+          loginButton.disabled = true;
+          cloudPanel.hidden = true;
+        }
+      }
+
+      initFirebase();
     })();
   </script>
 </body>
