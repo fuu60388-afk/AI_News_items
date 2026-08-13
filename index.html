@@ -649,13 +649,33 @@
           });
       }
 
-      function initFirebase() {
+      async function resolveFirebaseConfig() {
+        const localConfig = window.firebaseConfig || {};
+        if (["apiKey", "authDomain", "projectId", "appId"].every((key) => localConfig[key])) {
+          return localConfig;
+        }
+        try {
+          const res = await fetch("/api/firebase-config");
+          if (res.ok) {
+            const remoteConfig = await res.json();
+            if (["apiKey", "authDomain", "projectId", "appId"].every((key) => remoteConfig[key])) {
+              return remoteConfig;
+            }
+          }
+        } catch (e) {}
+        return localConfig;
+      }
+
+      async function initFirebase() {
         if (!window.firebase || !window.firebase.auth || !window.firebase.firestore) {
           authStatus.textContent = "Firebase 登入或雲端程式沒有成功載入，請稍後再試。";
           loginButton.disabled = true;
           cloudPanel.hidden = true;
           return;
         }
+
+        const config = await resolveFirebaseConfig();
+        const configReady = ["apiKey", "authDomain", "projectId", "appId"].every((key) => config[key]);
 
         if (!configReady) {
           authStatus.textContent = "尚未填入 Firebase 設定；目前仍可使用本機功能。";

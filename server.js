@@ -20,6 +20,13 @@ const server = http.createServer((req, res) => {
   const reqUrl = new URL(req.url, `http://${req.headers.host || "localhost"}`);
   const pathname = reqUrl.pathname;
 
+  // Handle /api/firebase-config
+  if (pathname === "/api/firebase-config") {
+    const firebaseConfigHandler = require("./api/firebase-config.js");
+    firebaseConfigHandler(req, res);
+    return;
+  }
+
   // Handle /api/generate
   if (pathname === "/api/generate") {
     let body = "";
