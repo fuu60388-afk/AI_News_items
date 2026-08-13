@@ -5,3 +5,7 @@ firebase-config.js
 *.pem
 *.key
 credentials*.json
+.vercel
+node_modules
+*.log
+.DS_Store

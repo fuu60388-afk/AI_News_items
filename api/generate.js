@@ -18,12 +18,22 @@ function json(res, status, body) {
 }
 
 module.exports = async function handler(req, res) {
-  if (req.method !== "POST") return json(res, 405, { error: "只接受產生題目的請求。" });
+  if (req.method !== "POST") return json(res, 405, { error: "只接受 POST 產生題目的請求。" });
+
   const apiKey = getApiKey();
-  if (!apiKey) return json(res, 500, { error: "尚未設定 Gemini 金鑰，請先在本機環境設定。" });
+  if (!apiKey) {
+    return json(res, 500, { error: "尚未設定 GEMINI_API_KEY 金鑰，請先在 Vercel 環境變數或本機 .env.local 中設定。" });
+  }
 
   const input = req.body || {};
-  if (!input.news || !input.news.trim()) return json(res, 400, { error: "請先貼上新聞重點。" });
+  if (!input.news || typeof input.news !== "string" || !input.news.trim()) {
+    return json(res, 400, { error: "請先貼上新聞重點內容。" });
+  }
+
+  // 限制請求內容大小（上限 10,000 字元）
+  if (input.news.length > 10000) {
+    return json(res, 400, { error: "新聞重點內容過長，請限制在 10,000 字元以內。" });
+  }
 
   const count = Number(input.count) === 3 ? 3 : 5;
   const prompt = `你是台灣高中職教師的命題助手。請根據以下資料產生 ${count} 題四選一單選題。
@@ -48,13 +58,19 @@ module.exports = async function handler(req, res) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
     });
+
     const data = await response.json();
-    if (!response.ok) return json(res, 502, { error: "Gemini 暫時無法產生題目，請稍後再試。" });
+    if (!response.ok) {
+      const errMsg = data?.error?.message || "Gemini 服務回應錯誤。";
+      return json(res, 502, { error: `Gemini API 呼叫失敗：${errMsg}` });
+    }
+
     const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-    const parsed = JSON.parse(text.replace(/^```json\s*|\s*```$/g, "").trim());
-    if (!Array.isArray(parsed.questions)) throw new Error("格式不正確");
+    const cleanedText = text.replace(/^```json\s*|\s*```$/g, "").trim();
+    const parsed = JSON.parse(cleanedText);
+    if (!Array.isArray(parsed.questions)) throw new Error("AI 回傳題目格式不正確");
     return json(res, 200, { questions: parsed.questions.slice(0, count) });
   } catch (error) {
-    return json(res, 502, { error: "題目產生失敗，請確認本機網路與金鑰設定後再試。" });
+    return json(res, 502, { error: `題目產生失敗：${error.message || "請確認網路或輸入資料後重試。"}` });
   }
 };
