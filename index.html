@@ -412,7 +412,7 @@
   <script src="vendor/auth-sdk.js"></script>
   <script src="vendor/firestore-sdk.js"></script>
   <script>
-    (() => {
+    (async () => {
       const authInfo = document.querySelector("#auth-info");
       const authStatus = document.querySelector("#auth-status");
       const loginButton = document.querySelector("#google-login");
@@ -421,8 +421,6 @@
       const cloudList = document.querySelector("#cloud-list");
       const cloudStatus = document.querySelector("#cloud-status");
       const cloudSaveButton = document.querySelector("#cloud-save");
-      const config = window.firebaseConfig || {};
-      const configReady = ["apiKey", "authDomain", "projectId", "appId"].every((key) => config[key]);
 
       let auth = null;
       let db = null;
@@ -508,11 +506,7 @@
         const questionCount = document.querySelector('input[name="question-count"]:checked')?.value || "5";
         return {
           title: getFieldValue("#news-title").trim() || getFieldValue("#subject").trim() || "未命名考卷",
-          conditions: {
-            subject: getFieldValue("#subject"),
-            questionType,
-            questionCount
-          },
+          conditions: { subject: getFieldValue("#subject"), questionType, questionCount },
           syllabus: getFieldValue("#unit"),
           newsMaterial: {
             title: getFieldValue("#news-title"),
@@ -550,7 +544,6 @@
           cloudList.innerHTML = '<p class="cloud-empty">目前還沒有雲端命題紀錄。</p>';
           return;
         }
-
         cloudList.innerHTML = "";
         cloudRecords.forEach((record) => {
           const item = document.createElement("article");
@@ -577,32 +570,27 @@
       }
 
       async function saveCloudRecord(baseRecord = null, saveAsCopy = false) {
-        if (!auth || !db || !activeUid) {
-          cloudStatus.textContent = "請先登入，才能把考卷存到雲端。";
-          return;
-        }
-
-        const collection = db.collection("users").doc(activeUid).collection("examSets");
+        if (!auth || !db || !activeUid) { cloudStatus.textContent = "請先登入，才能把考卷存到雲端。"; return; }
+        const col = db.collection("users").doc(activeUid).collection("examSets");
         const payload = baseRecord || buildCloudRecord();
-        const serverTimestamp = window.firebase.firestore.FieldValue.serverTimestamp();
+        const ts = window.firebase.firestore.FieldValue.serverTimestamp();
         const docData = {
           title: payload.title || "未命名考卷",
           conditions: payload.conditions,
           syllabus: payload.syllabus,
           newsMaterial: payload.newsMaterial,
           questions: payload.questions,
-          updatedAt: serverTimestamp
+          updatedAt: ts
         };
-
         try {
           if (!saveAsCopy && activeCloudId) {
-            const existing = cloudRecords.find((item) => item.id === activeCloudId);
-            docData.createdAt = existing?.createdAt || serverTimestamp;
-            await collection.doc(activeCloudId).set(docData, { merge: true });
+            const existing = cloudRecords.find((i) => i.id === activeCloudId);
+            docData.createdAt = existing?.createdAt || ts;
+            await col.doc(activeCloudId).set(docData, { merge: true });
             cloudStatus.textContent = "已更新這份雲端考卷。";
           } else {
-            docData.createdAt = serverTimestamp;
-            const saved = await collection.add(docData);
+            docData.createdAt = ts;
+            const saved = await col.add(docData);
             activeCloudId = saved.id;
             cloudStatus.textContent = "已另存成新的雲端考卷。";
           }
@@ -612,10 +600,7 @@
       }
 
       async function deleteCloudRecord(id, title) {
-        if (!auth || !db || !activeUid) {
-          cloudStatus.textContent = "請先登入，才能刪除雲端考卷。";
-          return;
-        }
+        if (!auth || !db || !activeUid) { cloudStatus.textContent = "請先登入，才能刪除雲端考卷。"; return; }
         if (!window.confirm(`確定要刪除「${title || "未命名考卷"}」嗎？`)) return;
         try {
           await db.collection("users").doc(activeUid).collection("examSets").doc(id).delete();
@@ -630,12 +615,7 @@
         stopCloudListener();
         activeUid = uid || null;
         activeCloudId = null;
-
-        if (!activeUid || !db) {
-          setCloudVisible(false);
-          return;
-        }
-
+        if (!activeUid || !db) { setCloudVisible(false); return; }
         setCloudVisible(true);
         cloudStatus.textContent = "正在載入你的雲端命題紀錄……";
         unsubscribeCloud = db.collection("users").doc(activeUid).collection("examSets")
@@ -649,127 +629,116 @@
           });
       }
 
+      // ── 核心修正：載入 Firebase 設定（本機優先，否則從 API 取得）──
       async function resolveFirebaseConfig() {
         const localConfig = window.firebaseConfig || {};
-        if (["apiKey", "authDomain", "projectId", "appId"].every((key) => localConfig[key])) {
+        if (["apiKey", "authDomain", "projectId", "appId"].every((k) => localConfig[k])) {
           return localConfig;
         }
         try {
           const res = await fetch("/api/firebase-config");
           if (res.ok) {
-            const remoteConfig = await res.json();
-            if (["apiKey", "authDomain", "projectId", "appId"].every((key) => remoteConfig[key])) {
-              return remoteConfig;
+            const remote = await res.json();
+            if (["apiKey", "authDomain", "projectId", "appId"].every((k) => remote[k])) {
+              return remote;
             }
           }
         } catch (e) {}
         return localConfig;
       }
 
-      async function initFirebase() {
-        if (!window.firebase || !window.firebase.auth || !window.firebase.firestore) {
-          authStatus.textContent = "Firebase 登入或雲端程式沒有成功載入，請稍後再試。";
-          loginButton.disabled = true;
-          cloudPanel.hidden = true;
-          return;
-        }
-
-        const config = await resolveFirebaseConfig();
-        const configReady = ["apiKey", "authDomain", "projectId", "appId"].every((key) => config[key]);
-
-        if (!configReady) {
-          authStatus.textContent = "尚未填入 Firebase 設定；目前仍可使用本機功能。";
-          loginButton.disabled = true;
-          cloudPanel.hidden = true;
-          return;
-        }
-
-        try {
-          if (!window.firebase.apps.length) {
-            window.firebase.initializeApp(config);
-          }
-
-          auth = window.firebase.auth();
-          db = window.firebase.firestore();
-          const provider = new window.firebase.auth.GoogleAuthProvider();
-
-          auth.onAuthStateChanged((user) => {
-            if (user) {
-              authInfo.textContent = `已登入：${user.displayName || user.email || "Google 使用者"}`;
-              authStatus.textContent = "登入成功，現在可以使用雲端命題紀錄。";
-              loginButton.hidden = true;
-              logoutButton.hidden = false;
-              startCloudListener(user.uid);
-            } else {
-              authInfo.textContent = "目前以本機方式使用";
-              authStatus.textContent = "登入後可辨識您的身分；本機保存功能仍可照常使用。";
-              loginButton.hidden = false;
-              logoutButton.hidden = true;
-              activeUid = null;
-              stopCloudListener();
-              setCloudVisible(false);
-            }
-          });
-
-          loginButton.addEventListener("click", async () => {
-            if (window.location.protocol === "file:") {
-              authStatus.textContent = "目前是直接雙擊檔案開啟 (file://)，Firebase 登入需要透過網址。請改用 http://localhost:3000 開啟後再試一次。";
-              return;
-            }
-            if (window.location.hostname === "127.0.0.1") {
-              const portPart = window.location.port ? `:${window.location.port}` : "";
-              authStatus.textContent = `Firebase 免費版不支援 IP 網域 (127.0.0.1) 登入。請將網址開頭的 127.0.0.1 改為 localhost（即 http://localhost${portPart}）後重新整理再試一次。`;
-              return;
-            }
-
-            authStatus.textContent = "正在開啟 Google 登入視窗……";
-            try {
-              await auth.signInWithPopup(provider);
-            } catch (error) {
-              const code = error && error.code ? error.code : "unknown-error";
-              const message = error && error.message ? error.message : String(error);
-              if (code === "auth/popup-closed-by-user") {
-                authStatus.textContent = "已取消 Google 登入（視窗已被關閉）。";
-                return;
-              }
-              if (code === "auth/unauthorized-domain") {
-                const currentHost = window.location.hostname || "localhost";
-                const portPart = window.location.port ? `:${window.location.port}` : "";
-                authStatus.textContent = `Google 登入失敗：目前網址 (${currentHost}) 尚未加入 Firebase 後台授權名單。請改用 http://localhost${portPart} 開啟測試。`;
-                return;
-              }
-              if (code === "auth/popup-blocked" || code === "auth/operation-not-supported-in-this-environment") {
-                authStatus.textContent = "這個瀏覽器擋住了登入彈窗，正在改用轉頁登入……";
-                try {
-                  await auth.signInWithRedirect(provider);
-                } catch (redirectError) {
-                  const rCode = redirectError && redirectError.code ? redirectError.code : "unknown";
-                  authStatus.textContent = `Google 登入失敗 (${rCode})，請改用 http://localhost:${window.location.port || "3000"} 開啟瀏覽器再試一次。`;
-                }
-                return;
-              }
-              authStatus.textContent = `Google 登入失敗 (${code})，請確認 Firebase 已啟用 Google 登入，並請改用 http://localhost 網址測試。`;
-            }
-          });
-
-          logoutButton.addEventListener("click", async () => {
-            try {
-              await auth.signOut();
-            } catch (error) {
-              authStatus.textContent = "登出失敗，請稍後再試。";
-            }
-          });
-
-          cloudSaveButton.addEventListener("click", () => saveCloudRecord(null, false));
-          cloudPanel.hidden = true;
-        } catch (error) {
-          authStatus.textContent = "Firebase 初始化失敗，請稍後再試。";
-          loginButton.disabled = true;
-          cloudPanel.hidden = true;
-        }
+      if (!window.firebase || !window.firebase.auth || !window.firebase.firestore) {
+        authStatus.textContent = "Firebase 登入或雲端程式沒有成功載入，請稍後再試。";
+        loginButton.disabled = true;
+        cloudPanel.hidden = true;
+        return;
       }
 
-      initFirebase();
+      // 等待取得設定（這裡 await 確保非同步完成）
+      const config = await resolveFirebaseConfig();
+      const configReady = ["apiKey", "authDomain", "projectId", "appId"].every((k) => config[k]);
+
+      if (!configReady) {
+        authStatus.textContent = "尚未填入 Firebase 設定；目前仍可使用本機功能。";
+        loginButton.disabled = true;
+        cloudPanel.hidden = true;
+        return;
+      }
+
+      try {
+        if (!window.firebase.apps.length) {
+          window.firebase.initializeApp(config);
+        }
+
+        auth = window.firebase.auth();
+        db = window.firebase.firestore();
+        const provider = new window.firebase.auth.GoogleAuthProvider();
+
+        auth.onAuthStateChanged((user) => {
+          if (user) {
+            authInfo.textContent = `已登入：${user.displayName || user.email || "Google 使用者"}`;
+            authStatus.textContent = "登入成功，現在可以使用雲端命題紀錄。";
+            loginButton.hidden = true;
+            logoutButton.hidden = false;
+            startCloudListener(user.uid);
+          } else {
+            authInfo.textContent = "目前以本機方式使用";
+            authStatus.textContent = "登入後可辨識您的身分；本機保存功能仍可照常使用。";
+            loginButton.hidden = false;
+            logoutButton.hidden = true;
+            activeUid = null;
+            stopCloudListener();
+            setCloudVisible(false);
+          }
+        });
+
+        loginButton.addEventListener("click", async () => {
+          if (window.location.protocol === "file:") {
+            authStatus.textContent = "目前是直接雙擊檔案開啟 (file://)，請改用 http://localhost:3000 開啟後再試一次。";
+            return;
+          }
+          if (window.location.hostname === "127.0.0.1") {
+            const portPart = window.location.port ? `:${window.location.port}` : "";
+            authStatus.textContent = `Firebase 免費版不支援 IP 網域 (127.0.0.1)。請改用 http://localhost${portPart} 後重新整理再試一次。`;
+            return;
+          }
+          authStatus.textContent = "正在開啟 Google 登入視窗……";
+          try {
+            await auth.signInWithPopup(provider);
+          } catch (error) {
+            const code = error && error.code ? error.code : "unknown-error";
+            if (code === "auth/popup-closed-by-user") {
+              authStatus.textContent = "已取消 Google 登入（視窗已被關閉）。";
+              return;
+            }
+            if (code === "auth/unauthorized-domain") {
+              authStatus.textContent = `Google 登入失敗：目前網址 (${window.location.hostname}) 尚未加入 Firebase 後台授權名單。`;
+              return;
+            }
+            if (code === "auth/popup-blocked" || code === "auth/operation-not-supported-in-this-environment") {
+              authStatus.textContent = "這個瀏覽器擋住了登入彈窗，正在改用轉頁登入……";
+              try {
+                await auth.signInWithRedirect(provider);
+              } catch (redirectError) {
+                authStatus.textContent = "Google 登入失敗，請確認瀏覽器允許登入功能後再試一次。";
+              }
+              return;
+            }
+            authStatus.textContent = `Google 登入失敗 (${code})，請確認 Firebase 已啟用 Google 登入。`;
+          }
+        });
+
+        logoutButton.addEventListener("click", async () => {
+          try { await auth.signOut(); } catch { authStatus.textContent = "登出失敗，請稍後再試。"; }
+        });
+
+        cloudSaveButton.addEventListener("click", () => saveCloudRecord(null, false));
+        cloudPanel.hidden = true;
+      } catch (error) {
+        authStatus.textContent = "Firebase 初始化失敗，請稍後再試。";
+        loginButton.disabled = true;
+        cloudPanel.hidden = true;
+      }
     })();
   </script>
 </body>
