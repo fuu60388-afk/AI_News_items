@@ -45,37 +45,32 @@
 - 已串到本機出題流程的程式結構。
 - 目前本機驗證還沒走到完整可用，因為登入和雲端流程還在卡點。
 
-### M3 / M4
+### M3 / M4 (已驗收通過)
 
-- `index.html` 已經寫入 Google 登入、登出、登入者名稱顯示、雲端命題紀錄清單、儲存、載入、另存、刪除的程式。
-- `firestore.rules` 已經有「只能讀寫自己的 `users/{uid}/examSets`」規則。
-- 但是在本機測試時，Google 登入沒有順利完成，所以雲端區塊沒有真正進來。
+- `index.html` 已經寫入 Google 登入、登出、登入者名稱顯示、雲端命題紀錄清單、儲存、載入、另存、刪除的完整功能。
+- `firestore.rules` 已設定「只能讀寫自己的 `users/{uid}/{document=**}`」規則。
+- 建置獨立零相依本機伺服器 `server.js` 與 `啟動本機伺服器.bat`，經實測於 `http://localhost:3000` 通過所有 Google 登入與雲端 CRUD 驗收。
 
 ## 現在卡住的地方
 
-- `http://localhost:3000/` 可以開。
-- `http://127.0.0.1:3000/` 在當前測試裡會顯示無法連線。
-- Google 登入流程曾出現兩種錯誤：
-  - `auth/popup-closed-by-user`
-  - `auth/unauthorized-domain`
-- 目前頁面上的雲端區塊還沒有真正顯示出來，所以 M4 還不能算通過。
+- 目前無卡點，M3 與 M4 已全部通過驗收並完成 Git Commit。
 
 ## 現有檔案與用途
 
 - `index.html`：主頁面，包含本機保存、列印、Google 登入、雲端儲存區塊。
 - `firestore.rules`：Firestore 安全規則。
+- `server.js`：原生 Node.js 本機伺服器，負責靜態檔案與 AI 命題 API。
+- `啟動本機伺服器.bat`：雙擊即可一鍵啟動本機伺服器。
 - `firebase-config.js`：本機 Firebase 設定。
 - `vendor/app-sdk.js`、`vendor/auth-sdk.js`、`vendor/firestore-sdk.js`：本機 Firebase 相容腳本。
 - `api/generate.js`：AI 出題入口。
-- `.gitignore`：已存在，會排除 `.env` 類檔案。
+- `.gitignore`：已存在，會排除 `.env` 與金鑰設定類檔案。
 
 ## 下一位開發者先做什麼
 
-1. 先確認本機伺服器目前到底是用 `localhost` 還是 `127.0.0.1`。
-2. 再確認 Firebase 專案後台是否把目前本機網域加進允許名單。
-3. 先把 Google 登入跑通，讓登入者名稱與雲端區塊真的出現。
-4. 登入成功後，再測雲端儲存、載入、另存、刪除。
-5. 等 M4 完整通過，再往 M5 部署走。
+1. 準備進入 M5 部署里程碑。
+2. 將 API 金鑰設定於 Vercel 環境變數中，並確保前端金鑰安全。
+3. 測試 Vercel 正式網域上的登入、出題與雲端紀錄流程。
 
 ## 驗收標準
 
